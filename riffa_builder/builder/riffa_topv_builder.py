@@ -120,6 +120,10 @@ class RiffaTopvBuilder:
             f.write('    '+debug+'wire ' + name + '_tvalid;\n')
             f.write('    '+debug+'wire ' + name + '_tready;\n')
             f.write('    '+debug+'wire ' + name + '_tlast;\n')
+            f.write('    wire [{0}:0] {1}_start_ticks;\n'.format(self.builder.performance_counters_width-1, name))
+            f.write('    wire [{0}:0] {1}_end_ticks;\n'.format(self.builder.performance_counters_width-1, name))
+            f.write('    wire [{0}:0] {1}_data_bytes;\n'.format(self.builder.performance_counters_width-1, name))
+
             if (port.direction == 'out'):
                 f.write('    '+debug+'wire [{0}:0] {1}_len;\n'.format(self.builder.riffa_len_width-1, name))
         elif (port.style == 'BRAM'):
@@ -191,7 +195,21 @@ class RiffaTopvBuilder:
             if (p.direction == 'out'):
                 f.write('    assign {0}_len = (gpo[{1}:{2}])? gpo[{1}:{2}] : {3};\n'.format(p.wirename, p.gpio_bit + self.builder.riffa_len_width - 1, p.gpio_bit, p.words))
                 f.write('    assign gpi[{0}:{1}] = gpo[{0}:{1}];\n'.format(p.gpio_bit + self.builder.riffa_len_width - 1, p.gpio_bit))
-                
+            if (self.builder.performance_counters):
+                f.write('    assign gpi[{0}+:{1}] = {2}_start_ticks;\n'.format(p.gpio_bit_start_ticks, self.builder.performance_counters_width, p.wirename))
+                f.write('    assign gpi[{0}+:{1}] = {2}_end_ticks;\n'.format(p.gpio_bit_end_ticks, self.builder.performance_counters_width, p.wirename))
+                f.write('    assign gpi[{0}+:{1}] = {2}_data_bytes;\n'.format(p.gpio_bit_data_bytes, self.builder.performance_counters_width, p.wirename))
+
+    def write_pfm_wires(self, f, m):
+        for m in self.builder.modules:
+            f.write('    wire [{0}:0] {1}start_ticks;\n'.format(self.builder.performance_counters_width-1, m.prefix))
+            f.write('    wire [{0}:0] {1}done_ticks;\n'.format(self.builder.performance_counters_width-1, m.prefix))
+
+    def write_pfm_connection(self, f, m):
+        if (self.builder.performance_counters):
+            f.write('    assign gpi[{0}+:{1}] = {2}start_ticks;\n'.format(m.gpio_bit_start_ticks, self.builder.performance_counters_width, m.prefix))
+            f.write('    assign gpi[{0}+:{1}] = {2}done_ticks;\n'.format(m.gpio_bit_done_ticks, self.builder.performance_counters_width, m.prefix))
+
     def write_axis_m(self, f, port):
         name = port.wirename
         width = port.width
@@ -203,7 +221,11 @@ class RiffaTopvBuilder:
         f.write('\n    localparam '+CHNL+' = '+chnl+';\n')
         f.write('    riffa_axis_m #(\n')
         f.write('        .C_AXIS_DATA_WIDTH   ('+str(width)+'),\n')
-        f.write('        .C_PCI_DATA_WIDTH    (C_PCI_DATA_WIDTH))\n')
+        f.write('        .C_PCI_DATA_WIDTH    (C_PCI_DATA_WIDTH),\n')
+        f.write('        .C_COUNTER           ({0}),\n'.format(1 if self.builder.performance_counters else 0))
+        f.write('        .C_COUNTER_WIDTH     ({0}),\n'.format(self.builder.performance_counters_width))
+        f.write('        .C_COUNTER_DIV       ({0}))\n'.format(self.builder.performance_counters_tick_div))
+
         f.write('    am'+chnl+' (\n')
         f.write('        .M_AXIS_RSTN         (' + self.builder.main_rstn +'),\n')
         f.write('        .M_AXIS_CLK          (' + self.builder.main_clk +'),\n')
@@ -219,7 +241,12 @@ class RiffaTopvBuilder:
         f.write('        .CHNL_RX_OFF         (chnl_rx_off[`SIG_CHNL_OFFSET_W*'+CHNL+' +:`SIG_CHNL_OFFSET_W]),\n')
         f.write('        .CHNL_RX_DATA        (chnl_rx_data[C_PCI_DATA_WIDTH*'+CHNL+'+:C_PCI_DATA_WIDTH]),\n')
         f.write('        .CHNL_RX_DATA_VALID  (chnl_rx_data_valid['+CHNL+']),\n')
-        f.write('        .CHNL_RX_DATA_REN    (chnl_rx_data_ren['+CHNL+']));\n')
+        f.write('        .CHNL_RX_DATA_REN    (chnl_rx_data_ren['+CHNL+']),\n')
+        f.write('        .START_TICKS         ({0}_start_ticks),\n'.format(name))
+        f.write('        .END_TICKS           ({0}_end_ticks),\n'.format(name))
+        f.write('        .DATA_BYTES          ({0}_data_bytes));\n'.format(name))
+
+
         
     def write_axis_s(self, f, port):
         name = port.wirename
@@ -233,7 +260,10 @@ class RiffaTopvBuilder:
         f.write('\n')
         f.write('    riffa_axis_s #(\n')
         f.write('        .C_AXIS_DATA_WIDTH('+str(width)+') ,\n')
-        f.write('        .C_PCI_DATA_WIDTH (C_PCI_DATA_WIDTH ))\n')
+        f.write('        .C_PCI_DATA_WIDTH    (C_PCI_DATA_WIDTH),\n')
+        f.write('        .C_COUNTER           ({0}),\n'.format(1 if self.builder.performance_counters else 0))
+        f.write('        .C_COUNTER_WIDTH     ({0}),\n'.format(self.builder.performance_counters_width))
+        f.write('        .C_COUNTER_DIV       ({0}))\n'.format(self.builder.performance_counters_tick_div))
         f.write('    as'+chnl+' (\n')
         f.write('        .S_AXIS_RSTN         (' + self.builder.main_rstn + '),\n')
         f.write('        .S_AXIS_CLK          (' + self.builder.main_clk + '),\n')
@@ -250,8 +280,11 @@ class RiffaTopvBuilder:
         f.write('        .CHNL_TX_OFF         (chnl_tx_off[`SIG_CHNL_OFFSET_W*'+CHNL+' +:`SIG_CHNL_OFFSET_W]),\n')
         f.write('        .CHNL_TX_DATA        (chnl_tx_data[C_PCI_DATA_WIDTH*'+CHNL+' +:C_PCI_DATA_WIDTH]),\n')
         f.write('        .CHNL_TX_DATA_VALID  (chnl_tx_data_valid['+CHNL+']),\n')
-        f.write('        .CHNL_TX_DATA_REN    (chnl_tx_data_ren['+CHNL+']    ));\n')
-    
+        f.write('        .CHNL_TX_DATA_REN    (chnl_tx_data_ren['+CHNL+']),\n')
+        f.write('        .START_TICKS         ({0}_start_ticks),\n'.format(name))
+        f.write('        .END_TICKS           ({0}_end_ticks),\n'.format(name))
+        f.write('        .DATA_BYTES          ({0}_data_bytes));\n'.format(name))
+
     def write_riffa_bram(self, f, bch):
         chnl = bch.chnl
         CHNL = 'C_BRAM_CHNL'.format(bch.chnl)
@@ -347,7 +380,33 @@ class RiffaTopvBuilder:
         f.write('    assign chnl_tx_off[`SIG_CHNL_OFFSET_W*'+chnl+'+:`SIG_CHNL_OFFSET_W] = \'b0;\n')
         f.write('    assign chnl_tx_data[C_PCI_DATA_WIDTH*'+chnl+'+:C_PCI_DATA_WIDTH] = \'b0;\n')
         f.write('    assign chnl_tx_data_valid[' + chnl + '] = 1\'b0;\n')
-        
+
+    def write_performance_counters(self, f):
+        f.write('\n');
+        f.write('    pfm_counter #(\n');
+        f.write('        .CHANNEL_NUM({0}),\n'.format(2*len(self.builder.modules)))
+        f.write('        .WIDTH({0}),\n'.format(self.builder.performance_counters_width))
+        f.write('        .DIV({0}))\n'.format(self.builder.performance_counters_tick_div))
+        f.write('    pfm_counters (\n')
+        f.write('        .rst ({0}),\n'.format(self.builder.main_rst))
+        f.write('        .clk ({0}),\n'.format(self.builder.main_clk))
+        f.write('        .trig ({')
+        bfirst = True
+        for m in self.builder.modules:
+            if (not bfirst):
+                f.write('\n             ,')
+            bfirst = False
+            f.write('{0}ap_start, {0}ap_done'.format(m.prefix))
+        f.write('}),\n')
+        f.write('        .mark ({')
+        bfirst = True
+        for m in self.builder.modules:
+            if (not bfirst):
+                f.write('\n             ,')
+            bfirst = False
+            f.write('{0}start_ticks, {0}done_ticks'.format(m.prefix))
+        f.write('}));\n')
+
     def write_user_module(self, f, module):
         name = module.ins_name;
         mtype = module.name;
@@ -381,8 +440,7 @@ class RiffaTopvBuilder:
         for p in module.ports:
             if ((p.style == 'AXIS') and (p.direction == 'out')):
                 f.write('    assign '+ p.wirename + '_tlast = 1\'b0;\n')
-                
- 
+
     def build_top_v(self, src_topv_file, dst_topv_file):
         fin = open(src_topv_file, 'r')
         fout = open(dst_topv_file, 'w')
@@ -522,12 +580,20 @@ class RiffaTopvBuilder:
                         if (p.style not in {'AXIS', 'BRAM'}):
                             self.write_port_wires(fout, p)
 
+                for m in self.builder.modules:
+                    self.write_pfm_wires(fout,m)
+
                 #clock, reset and gpio connection
                 fout.write('    \n    //\n    //GPIO connections\n')
                 for m in self.builder.modules:
                     for p in m.ports:
                         self.write_connection(fout, p)
 
+                for m in self.builder.modules:
+                    self.write_pfm_connection(fout,m)
+
+                #performance counters
+                self.write_performance_counters(fout)
 
                 #user modules
                 for m in self.builder.modules:

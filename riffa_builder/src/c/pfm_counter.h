@@ -9,12 +9,11 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <windows.h> 
 #include "riffa.h"
 
 
-#ifndef RIFFA_RUN_H
-#define RIFFA_RUN_H
+#ifndef PFM_COUNTER
+#define PFM_COUNTER
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,8 +53,6 @@ typedef struct {
 #define PORT_SCALAR 1
 #define PORT_AXIS 2
 #define PORT_BRAM 3
-#define PORT_PFM_COUNTER 16
-#define PORT_DATA_COUNTER 17
 #define DIR_IN 0x1
 #define DIR_OUT 0x2
 #define DIR_AP_START 0x10
@@ -68,8 +65,6 @@ typedef struct {
 #define AXIS_LEN_WIDTH 32
 
 double riffa_run(FPGA_PORT *ports, int port_number, int debug_level);
-
-void riffa_performance(FPGA_PORT *ports, int port_number, int debug_level);
 
 #ifdef __cplusplus
 }

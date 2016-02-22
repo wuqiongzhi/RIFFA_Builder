@@ -58,6 +58,7 @@ class RiffaXprBuilder:
                         self.write_src_file(fout, '$PPRDIR/../hdl/riffa_bram.v')
                         self.write_src_file(fout, '$PPRDIR/../hdl/riffa_bram_core.v')
                         self.write_src_file(fout, '$PPRDIR/../hdl/axis_tester.v')
+                        self.write_src_file(fout, '$PPRDIR/../hdl/pfm_counter.v')
 
                         #write user verilog source files
                         for f in self.builder.verilog_files:

@@ -50,6 +50,7 @@ class RiffaBuilder:
         
         #architecture information
         self.riffa_len_width = 32
+        self.gpio_channel = 0
         self.modules = []
         self.main_clk = 'MAIN_CLK'
         self.main_rstn = 'MAIN_RSTN'
@@ -68,6 +69,10 @@ class RiffaBuilder:
         self.bram_share_num = 4
         self.hardware_timeout = 25000
         self.host_debug_level = 3
+
+        self.performance_counters = True
+        self.performance_counters_width = 32
+        self.performance_counters_tick_div = 0
 
         self.overwrite_fpga_prj = True
         self.overwrite_host = True
@@ -104,6 +109,7 @@ class RiffaBuilder:
         for m in self.modules:
             module_prefix = 'm' + str(module_cnt) + '_'
             m.ins_name = module_prefix + m.name
+            m.prefix = module_prefix
             module_cnt = module_cnt + 1
             for p in m.ports:
                 p.wirename = module_prefix + p.name
@@ -125,7 +131,27 @@ class RiffaBuilder:
                     p.gpio_bit = gpio_bit_cnt
                     gpio_bit_cnt = gpio_bit_cnt + self.riffa_len_width
                     #print('{0}:{1}:{2}:{3}'.format(p.name, p.width, p.gpio_bit, gpio_bit_cnt))
-                    
+
+                if (self.performance_counters):
+                    if (p.style == 'AXIS'):
+                        gpio_bit_cnt = self.find_bit_pos(gpio_bit_cnt, self.performance_counters_width)
+                        p.gpio_bit_start_ticks = gpio_bit_cnt
+                        gpio_bit_cnt = gpio_bit_cnt + self.performance_counters_width
+                        gpio_bit_cnt = self.find_bit_pos(gpio_bit_cnt, self.performance_counters_width)
+                        p.gpio_bit_end_ticks = gpio_bit_cnt
+                        gpio_bit_cnt = gpio_bit_cnt + self.performance_counters_width
+                        gpio_bit_cnt = self.find_bit_pos(gpio_bit_cnt, self.performance_counters_width)
+                        p.gpio_bit_data_bytes = gpio_bit_cnt
+                        gpio_bit_cnt = gpio_bit_cnt + self.performance_counters_width
+
+            for m in self.modules:
+                gpio_bit_cnt = self.find_bit_pos(gpio_bit_cnt, self.performance_counters_width)
+                m.gpio_bit_start_ticks = gpio_bit_cnt
+                gpio_bit_cnt = gpio_bit_cnt + self.performance_counters_width
+                gpio_bit_cnt = self.find_bit_pos(gpio_bit_cnt, self.performance_counters_width)
+                m.gpio_bit_done_ticks = gpio_bit_cnt
+                gpio_bit_cnt = gpio_bit_cnt + self.performance_counters_width
+
         self.gpio_width = gpio_bit_cnt
         
         #generate CHNL mapping
@@ -218,7 +244,7 @@ class RiffaBuilder:
         for m in self.modules:
             for p in m.ports:
                 if (p.style == 'Scalar'):
-                    p.chnl = 0
+                    p.chnl = self.gpio_channel
 
         for m in self.modules:
             m.done_port = ''
@@ -597,6 +623,7 @@ class RiffaBuilder:
                 shutil.copy(self.root_dir + '/riffa_builder/src/fpga/riffa_bram.v', self.fpga_prj_dir + '/hdl')
                 shutil.copy(self.root_dir + '/riffa_builder/src/fpga/riffa_bram_core.v', self.fpga_prj_dir + '/hdl')
                 shutil.copy(self.root_dir + '/riffa_builder/src/fpga/axis_tester.v', self.fpga_prj_dir + '/hdl')
+                shutil.copy(self.root_dir + '/riffa_builder/src/fpga/pfm_counter.v', self.fpga_prj_dir + '/hdl')
 
                 print ('Successful copy the fpga source files\n')
             

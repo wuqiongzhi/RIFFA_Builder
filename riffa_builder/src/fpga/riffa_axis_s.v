@@ -34,18 +34,22 @@
 // ----------------------------------------------------------------------
 //----------------------------------------------------------------------------
 // Filename:            riffa_axis.v
-// Version:
+// Version:             0.2
 // Verilog Standard:    Verilog-2001
 // Description:         AXI-Stream to RIFFA TX interface 
 // Author:              Qiongzhi Wu
-// History:
+// History:             0.1: initial version
+//                      0.2: Add performance counters
 //-----------------------------------------------------------------------------
 
 `timescale 1ns/1ns
 
 module riffa_axis_s #(
     parameter C_AXIS_DATA_WIDTH = 32, // 8/16/32/.../C_PCI_DATA_WIDTH
-    parameter C_PCI_DATA_WIDTH = 128)
+    parameter C_PCI_DATA_WIDTH = 128,
+    parameter C_COUNTER = 0,
+    parameter C_COUNTER_WIDTH = 32,
+    parameter C_COUNTER_DIV = 0)
 (
     ////////////////////////////////////////////////////////////////////////////
     // AXI-Lite Slave (data input)
@@ -65,7 +69,11 @@ module riffa_axis_s #(
     output reg [30:0] CHNL_TX_OFF,
     output [C_PCI_DATA_WIDTH-1:0] CHNL_TX_DATA,
     output reg CHNL_TX_DATA_VALID,
-    input   CHNL_TX_DATA_REN
+    input   CHNL_TX_DATA_REN,
+    ///////////////////////////////////////////////////////////////////////////
+    output reg [C_COUNTER_WIDTH-1: 0] START_TICKS,
+    output reg [C_COUNTER_WIDTH-1: 0] END_TICKS,
+    output reg [C_COUNTER_WIDTH-1: 0] DATA_BYTES
 );
 
     wire clk, rstn;
@@ -227,5 +235,54 @@ module riffa_axis_s #(
     end
     
     assign CHNL_TX_DATA = buffer;
+
+    reg [C_COUNTER_DIV + C_COUNTER_WIDTH - 1: 0] timer;
+    reg start_tick_rdy, end_tick_rdy;
+    reg start_tick_trig, end_tick_trig;
+    reg data_cnt_pulse;
+
+    always @ (posedge clk)
+    begin
+        if (!rstn)
+        begin
+            START_TICKS <= 'b0;
+            END_TICKS <= 'b0;
+            DATA_BYTES <= 'b0;
+            timer <= 'b0;
+            start_tick_rdy <= 1'b0;
+            start_tick_trig <= 1'b0;
+            end_tick_rdy <= 1'b0;
+            end_tick_trig <= 1'b0;
+            data_cnt_pulse <= 1'b0;
+        end else begin
+        
+            if (C_COUNTER)
+            begin
+                if (~timer != 0)
+                    timer <= timer + 1'b1;
+                
+                start_tick_rdy <= (stat == ST_TX);
+                start_tick_trig <= (stat == ST_TX) && !start_tick_rdy;
+                if (start_tick_trig)
+                    START_TICKS <= timer[C_COUNTER_DIV +: C_COUNTER_WIDTH];
+                
+                end_tick_rdy <= (stat == ST_TX_END);
+                end_tick_trig <= (stat == ST_TX_END) && !end_tick_rdy;
+                if (end_tick_trig)
+                    END_TICKS <= timer[C_COUNTER_DIV +: C_COUNTER_WIDTH];
+                    
+                data_cnt_pulse <= (stat == ST_TX) && CHNL_TX_DATA_REN && CHNL_TX_DATA_VALID;
+                
+                if (data_cnt_pulse)
+                    DATA_BYTES <= DATA_BYTES + C_PCI_BYTE_WIDTH;
+            end else begin
+                START_TICKS <= 'b0;
+                END_TICKS <= 'b0;
+                DATA_BYTES <= 'b0;
+                timer <= 'b0;
+            end
+        end
+    end
+
 
 endmodule

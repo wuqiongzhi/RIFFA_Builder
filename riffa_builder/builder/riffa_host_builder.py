@@ -66,6 +66,48 @@ class RiffaHostBuilder:
     def write_port_init(self, f, port, cnt):
         self.write_port_init_0(f, port, 'ports[{0}]'.format(cnt))
 
+    def write_pfm_init_rest(self, f):
+        f.write('    ptr->style = PORT_PFM_COUNTER;\n')
+        f.write('    ptr->direction = DIR_OUT;\n')
+        f.write('    ptr->channel = {0};\n'.format(self.builder.gpio_channel))
+        f.write('    ptr->width = {0};\n'.format(self.builder.performance_counters_width))
+        f.write('    ptr->c_width = {0};\n'.format(self.builder.performance_counters_width))
+        f.write('    ptr->words = {0};\n'.format(1))
+        f.write('    ptr->addr = {0};\n'.format(0))
+        f.write('    ptr->last = 1;\n')
+        f.write('    ptr->off = 0;\n')
+        f.write('    ptr->timeout = {0};\n'.format(self.builder.hardware_timeout))
+        f.write('    ptr->fpga = fpga;\n\n')
+
+    def write_module_pfm_init(self, f, m, cnt):
+        f.write('    ptr = &ports[{0}];\n'.format(cnt))
+        f.write('    sprintf(ptr->port_name, "%s", "Module {0} start");\n'.format(m.ins_name))
+        f.write('    ptr->bit_pos = {0};\n'.format(m.gpio_bit_start_ticks))
+        self.write_pfm_init_rest(f)
+
+        f.write('    ptr = &ports[{0}];\n'.format(cnt+1))
+        f.write('    sprintf(ptr->port_name, "%s", "Module {0} done");\n'.format(m.ins_name))
+        f.write('    ptr->bit_pos = {0};\n'.format(m.gpio_bit_done_ticks))
+        self.write_pfm_init_rest(f)
+
+    def write_axis_pfm_init(self, f, p, cnt):
+        f.write('    ptr = &ports[{0}];\n'.format(cnt))
+        f.write('    sprintf(ptr->port_name, "%s", "AXIS {0} start at");\n'.format(p.wirename))
+        f.write('    ptr->bit_pos = {0};\n'.format(p.gpio_bit_start_ticks))
+        self.write_pfm_init_rest(f)
+
+        f.write('    ptr = &ports[{0}];\n'.format(cnt+1))
+        f.write('    sprintf(ptr->port_name, "%s", "AXIS {0} end at");\n'.format(p.wirename))
+        f.write('    ptr->bit_pos = {0};\n'.format(p.gpio_bit_end_ticks))
+        self.write_pfm_init_rest(f)
+
+        f.write('    ptr = &ports[{0}];\n'.format(cnt+2))
+        f.write('    sprintf(ptr->port_name, "%s", "AXIS {0} transferred bytes");\n'.format(p.wirename))
+        f.write('    ptr->bit_pos = {0};\n'.format(p.gpio_bit_data_bytes))
+        self.write_pfm_init_rest(f)
+        f.write('    ptr->style = PORT_DATA_COUNTER;\n')
+
+
     def write_port_data(self, f, port, cnt):
         if (port.style == 'Scalar'):
             if (port.direction == 'in'):
@@ -105,9 +147,16 @@ class RiffaHostBuilder:
             for p in m.ports:
                 if (p.c_type == 'unknow'):
                     return 'The port {0}.{1} has no C type yet'.format(m.name, p.name)
+                if (self.builder.performance_counters and p.style == 'AXIS'):
+                    port_num = port_num + 3
                 #if (p.c_type != 'system'):
                 port_num = port_num + 1
-        fc.write('#define FPGA_PORT_NUM {0}\n\n'.format(port_num))
+            if (self.builder.performance_counters):
+                port_num = port_num + 2
+        fc.write('#define FPGA_PORT_NUM {0}\n'.format(port_num))
+        fc.write('#define PCIE_USERCLK_FREQ_MHZ {0}\n'.format(self.builder.riffa_clk_freq_mhz))
+        fc.write('#define MAINCLK_DIV {0}\n'.format(self.builder.clk_div))
+        fc.write('#define PFM_TICK_DIV {0}\n\n'.format(pow(2, self.builder.performance_counters_tick_div)))
 
         #declare user function
         self.write_func_declaration(fc)
@@ -122,7 +171,16 @@ class RiffaHostBuilder:
             for p in m.ports:
                 self.write_port_init(fc, p, port_cnt)
                 port_cnt = port_cnt + 1
-        
+
+        if (self.builder.performance_counters):
+            for m in self.builder.modules:
+                self.write_module_pfm_init(fc, m, port_cnt)
+                port_cnt = port_cnt + 2
+                for p in m.ports:
+                    if (p.style == 'AXIS'):
+                        self.write_axis_pfm_init(fc,p,port_cnt)
+                        port_cnt = port_cnt + 3
+
         port_cnt = 0;
         for m in self.builder.modules:
             for p in m.ports:
@@ -139,8 +197,21 @@ class RiffaHostBuilder:
                     self.write_read_data(fc, p, port_cnt)
                 port_cnt = port_cnt + 1
 
+        if (self.builder.performance_counters):
+            fc.write('    riffa_performance(ports, FPGA_PORT_NUM, debug_level);\n\n')
+            fc.write('    printf("Performance report. (time calculated by RIFFA user_clk = {0} MHz)\\n");\n'.format(self.builder.riffa_clk_freq_mhz))
+            fc.write('    for (i = 0; i < FPGA_PORT_NUM; i ++) {\n')
+            fc.write('        ptr = &ports[i];\n')
+            fc.write('        if (ptr->style == PORT_PFM_COUNTER) {\n')
+            fc.write('            printf("  %s: %d (%f us)\\n", ptr->port_name, ptr->data, ptr->data*MAINCLK_DIV*PFM_TICK_DIV*1.0/PCIE_USERCLK_FREQ_MHZ);\n')
+            fc.write('        }\n')
+            fc.write('        else if (ptr->style == PORT_DATA_COUNTER) {\n')
+            fc.write('            printf("  %s: %d\\n", ptr->port_name, ptr->data);\n')
+            fc.write('        }\n')
+            fc.write('    }\n')
+
         fc.write('    return run_time_ms;\n')
-        fc.write('}\n')
+        fc.write('}\n\n')
 
         fc.close()
         

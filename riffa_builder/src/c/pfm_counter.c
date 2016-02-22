@@ -368,21 +368,3 @@ double riffa_run(FPGA_PORT *ports, int port_number, int debug_level)
     
     return (rv);
 }
-
-void riffa_performance(FPGA_PORT *ports, int port_number, int debug_level)
-{
-    int i;
-    FPGA_PORT* port;
-    
-    if (debug_level > 1) {
-        printf("  riffa_performance: Read out results.\n");
-    }
-    for (i = 0; i < port_number; i ++) {
-        port = &ports[i];
-        if (port->style == PORT_PFM_COUNTER || port->style == PORT_DATA_COUNTER) {
-            port->data = fpga_read_gpio_port(port);
-        }
-    }
-    
-    return;
-}
